@@ -65,20 +65,29 @@ class _SymbolDetailScreenState extends ConsumerState<SymbolDetailScreen> {
       final repository = ref.read(marketDataRepositoryProvider);
       final endDate = DateTime.now();
       DateTime startDate;
+      int expectedTicks = 0;
 
       switch (range) {
         case '1W':
           startDate = endDate.subtract(const Duration(days: 7));
+          expectedTicks = 7 * 390; // ~390 ticks per trading day
           break;
         case '1M':
           startDate = endDate.subtract(const Duration(days: 30));
+          expectedTicks = 30 * 390;
           break;
         case '3M':
           startDate = endDate.subtract(const Duration(days: 90));
+          expectedTicks = 90 * 390;
           break;
-        default:
+        default: // 1D
           startDate = endDate.subtract(const Duration(days: 1));
+          expectedTicks = 390; // Full trading day ticks
       }
+
+      print(
+        'Loading historical data for ${widget.symbol} from ${DateFormatter.toISODate(startDate)} to ${DateFormatter.toISODate(endDate)}',
+      );
 
       final ticks = await repository.getHistoricalData(
         symbol: widget.symbol,
@@ -86,11 +95,14 @@ class _SymbolDetailScreenState extends ConsumerState<SymbolDetailScreen> {
         endDate: DateFormatter.toISODate(endDate),
       );
 
+      print('Received ${ticks.length} ticks for $range range');
+
       setState(() {
         _ticks = ticks;
         _isLoading = false;
       });
     } catch (e) {
+      print('Error loading historical data: $e');
       setState(() {
         _error = e.toString();
         _isLoading = false;
@@ -184,11 +196,16 @@ class _SymbolDetailScreenState extends ConsumerState<SymbolDetailScreen> {
     return Column(
       children: [
         // Price Info Card
+        // Replace the current price info section in _buildPortraitLayout method
+        // Find this section and replace it:
+
+        // Price Info Card
         Container(
           padding: const EdgeInsets.all(16),
           color: Colors.grey[100],
           child: Column(
             children: [
+              // Current price row (existing)
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -239,7 +256,7 @@ class _SymbolDetailScreenState extends ConsumerState<SymbolDetailScreen> {
                             ),
                           ),
                           Text(
-                            '(${NumberFormatter.formatPercentage(tick.changePercent)})',
+                            '(${tick.change >= 0 ? '+' : ''}${tick.changePercent.toStringAsFixed(2)}%)',
                             style: TextStyle(
                               fontSize: 12,
                               color: tick.change >= 0
@@ -252,32 +269,74 @@ class _SymbolDetailScreenState extends ConsumerState<SymbolDetailScreen> {
                     ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
+
+              // Stats Row 1: Open, High, Low, VWAP with actual values
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _buildInfoChip('Open', tick?.open),
-                  _buildInfoChip('High', tick?.high),
-                  _buildInfoChip('Low', tick?.low),
-                  _buildInfoChip('VWAP', tick?.vwap),
+                  _buildStatColumn(
+                    'Open',
+                    tick?.open,
+                    tick,
+                    tick != null
+                        ? NumberFormatter.formatCurrency(tick!.open)
+                        : 'N/A',
+                  ),
+                  _buildStatColumn(
+                    'High',
+                    tick?.high,
+                    tick,
+                    tick != null
+                        ? NumberFormatter.formatCurrency(tick!.high)
+                        : 'N/A',
+                  ),
+                  _buildStatColumn(
+                    'Low',
+                    tick?.low,
+                    tick,
+                    tick != null
+                        ? NumberFormatter.formatCurrency(tick!.low)
+                        : 'N/A',
+                  ),
+                  _buildStatColumn(
+                    'VWAP',
+                    tick?.vwap,
+                    tick,
+                    tick != null
+                        ? NumberFormatter.formatCurrency(tick!.vwap)
+                        : 'N/A',
+                  ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
+
+              // Stats Row 2: Volume, Turnover with actual values
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _buildInfoChip(
+                  _buildStatColumn(
                     'Volume',
                     tick?.ttq?.toDouble(),
+                    tick,
+                    tick != null
+                        ? NumberFormatter.formatVolume(tick!.ttq)
+                        : 'N/A',
                     isCurrency: false,
                   ),
-                  _buildInfoChip('Turnover', tick?.turnover),
+                  _buildStatColumn(
+                    'Turnover',
+                    tick?.turnover,
+                    tick,
+                    tick != null
+                        ? NumberFormatter.formatCurrency(tick!.turnover)
+                        : 'N/A',
+                  ),
                 ],
               ),
             ],
           ),
         ),
-
         // Historical range selector
         if (_isHistorical)
           Padding(
@@ -292,7 +351,9 @@ class _SymbolDetailScreenState extends ConsumerState<SymbolDetailScreen> {
                     selected: _selectedRange == range,
                     onSelected: (selected) {
                       if (selected) {
-                        setState(() => _selectedRange = range);
+                        setState(() {
+                          _selectedRange = range;
+                        });
                         _loadHistoricalData(range);
                       }
                     },
@@ -308,6 +369,7 @@ class _SymbolDetailScreenState extends ConsumerState<SymbolDetailScreen> {
             ticks: _ticks,
             symbol: widget.symbol,
             isHistorical: _isHistorical,
+            selectedRange: _selectedRange,
           ),
         ),
 
@@ -367,6 +429,44 @@ class _SymbolDetailScreenState extends ConsumerState<SymbolDetailScreen> {
     );
   }
 
+  Widget _buildStatColumn(
+    String label,
+    double? value,
+    Tick? tick,
+    String displayValue, {
+    bool isCurrency = true,
+  }) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Colors.grey,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            displayValue,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: value != null && label == 'VWAP'
+                  ? (tick?.ltp ?? 0) >= value
+                        ? Colors.green
+                        : Colors.red
+                  : Colors.black87,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildFullScreenChart() {
     return Scaffold(
       body: CustomChart(
@@ -374,6 +474,7 @@ class _SymbolDetailScreenState extends ConsumerState<SymbolDetailScreen> {
         symbol: widget.symbol,
         isFullScreen: true,
         isHistorical: _isHistorical,
+        selectedRange: _selectedRange,
       ),
     );
   }

@@ -52,10 +52,23 @@ class MarketDataRepository {
   }
 
   bool get isSocketConnected => _socketService.isConnected;
+  bool get isUsingMockData => _socketService.isUsingMockData;
 }
 
 final marketDataRepositoryProvider = Provider<MarketDataRepository>((ref) {
   final apiService = RestApiService();
   final socketService = ref.watch(socketServiceProvider);
   return MarketDataRepository(apiService, socketService);
+});
+
+// Simple provider for socket connection status
+final socketConnectionStatusProvider = Provider<bool>((ref) {
+  final socketService = ref.watch(socketServiceProvider);
+  return socketService.isConnected;
+});
+
+// Simple provider for mock data status
+final mockDataStatusProvider = Provider<bool>((ref) {
+  final socketService = ref.watch(socketServiceProvider);
+  return socketService.isUsingMockData;
 });

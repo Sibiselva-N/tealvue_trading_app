@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:dio/dio.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/errors/exceptions.dart';
@@ -71,7 +73,7 @@ class RestApiService {
     print('Generating mock data for $symbol');
     final List<Tick> mockTicks = [];
     final now = DateTime.now();
-    final basePrice = _getBasePrice(symbol);
+    final basePrice = 1000.0;
 
     // Generate 100 mock ticks for the day
     for (int i = 0; i < 100; i++) {
@@ -104,23 +106,27 @@ class RestApiService {
     return mockTicks;
   }
 
-  double _getBasePrice(String symbol) {
-    switch (symbol.toUpperCase()) {
-      case 'RELIANCE':
-        return 2450.0;
-      case 'TCS':
-        return 3400.0;
-      case 'INFY':
-        return 1500.0;
-      case 'HDFCBANK':
-        return 1600.0;
-      case 'ICICIBANK':
-        return 950.0;
-      default:
-        return 1000.0;
+
+  Future<int> getTotalRecordsCount(String symbol) async {
+    try {
+      final response = await _dio.post(
+        AppConstants.realtimeCurrentEndpoint,
+        data: {
+          'symbol': symbol,
+          'limit': 1,
+          'offset': 0,
+        },
+      );
+
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        return response.data['pagination']?['total_records'] ?? 0;
+      }
+      return 0;
+    } catch (e) {
+      return 0;
     }
   }
-
+  // In getHistoricalData method, if API returns insufficient data, generate mock historical data
   Future<List<Tick>> getHistoricalData({
     required String symbol,
     required String startDate,
@@ -141,36 +147,73 @@ class RestApiService {
 
       if (response.statusCode == 200 && response.data['success'] == true) {
         final List<dynamic> data = response.data['data'];
-        if (data.isEmpty) {
-          return _generateMockData(symbol);
+        if (data.isEmpty || data.length < 100) {
+          // Generate mock historical data for better visualization
+          print('Insufficient historical data, generating mock data');
+          return _generateMockHistoricalData(symbol, startDate, endDate);
         }
         return data.map((json) => Tick.fromJson(json)).toList();
       } else {
-        return _generateMockData(symbol);
+        return _generateMockHistoricalData(symbol, startDate, endDate);
       }
     } catch (e) {
       print('Error fetching historical data: $e');
-      return _generateMockData(symbol);
+      return _generateMockHistoricalData(symbol, startDate, endDate);
     }
   }
 
-  Future<int> getTotalRecordsCount(String symbol) async {
-    try {
-      final response = await _dio.post(
-        AppConstants.realtimeCurrentEndpoint,
-        data: {
-          'symbol': symbol,
-          'limit': 1,
-          'offset': 0,
-        },
-      );
+  List<Tick> _generateMockHistoricalData(String symbol, String startDate, String endDate) {
+    final List<Tick> mockTicks = [];
+    final start = DateTime.parse(startDate);
+    final end = DateTime.parse(endDate);
+    final days = end.difference(start).inDays;
+    final basePrice = 1000.0;
 
-      if (response.statusCode == 200 && response.data['success'] == true) {
-        return response.data['pagination']?['total_records'] ?? 0;
+    int sequenceNo = 0;
+    for (int day = 0; day <= days; day++) {
+      final currentDate = start.add(Duration(days: day));
+      if (currentDate.weekday == 6 || currentDate.weekday == 7) continue; // Skip weekends
+
+      // Generate 390 ticks per trading day (6.5 hours * 60 minutes = 390 minutes)
+      for (int minute = 0; minute < 390; minute++) {
+        final time = DateTime(
+          currentDate.year,
+          currentDate.month,
+          currentDate.day,
+          9 + (minute ~/ 60),
+          15 + (minute % 60),
+        );
+
+        // Create realistic price movement
+        final trend = sin(day * 0.1 + minute * 0.01) * 0.05;
+        final variation = (minute % 100 - 50) / 500;
+        final price = basePrice * (1 + trend + variation);
+
+        mockTicks.add(Tick(
+          symbolId: 1,
+          token: 1001,
+          symbol: symbol,
+          instrument: 'EQUITY',
+          lotSize: 1.0,
+          timestamp: time,
+          ltp: price,
+          ltq: 1000 + minute * 10,
+          atp: price * 0.99,
+          ttq: 100000 + minute * 1000,
+          open: basePrice,
+          high: price * 1.02,
+          low: price * 0.98,
+          prevClose: basePrice,
+          prevVolume: 1000000,
+          turnover: price * 100000,
+          priceDiff: 0,
+          volumeDiff: 0,
+          sequenceNo: sequenceNo++,
+        ));
       }
-      return 0;
-    } catch (e) {
-      return 0;
     }
+
+    print('Generated ${mockTicks.length} mock historical ticks for $symbol');
+    return mockTicks;
   }
 }

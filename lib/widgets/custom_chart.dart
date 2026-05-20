@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
-import '../core/utils/date_formatter.dart';
 import '../data/models/tick.dart';
 import '../core/utils/number_formatter.dart';
+import '../core/utils/date_formatter.dart';
 
 class CustomChart extends StatefulWidget {
   final List<Tick> ticks;
   final String symbol;
   final bool isFullScreen;
   final bool isHistorical;
+  final String selectedRange;
 
   const CustomChart({
     super.key,
@@ -16,6 +17,7 @@ class CustomChart extends StatefulWidget {
     required this.symbol,
     this.isFullScreen = false,
     this.isHistorical = false,
+    this.selectedRange = '1D',
   });
 
   @override
@@ -48,6 +50,49 @@ class _CustomChartState extends State<CustomChart> {
     }).toList();
   }
 
+  String _getXAxisLabel(int index) {
+    if (index >= widget.ticks.length) return '';
+
+    final tick = widget.ticks[index];
+
+    if (widget.isHistorical) {
+      // For historical data, show dates
+      switch (widget.selectedRange) {
+        case '1W':
+        case '1M':
+        case '3M':
+        // Show date for longer ranges
+          return '${tick.timestamp.day}/${tick.timestamp.month}';
+        default:
+        // Show time for 1D view
+          return '${tick.timestamp.hour}:${tick.timestamp.minute.toString().padLeft(2, '0')}';
+      }
+    } else {
+      // For intraday, show time
+      return '${tick.timestamp.hour}:${tick.timestamp.minute.toString().padLeft(2, '0')}';
+    }
+  }
+
+  int _getLabelInterval() {
+    if (_spots.isEmpty) return 1;
+
+    if (widget.isHistorical) {
+      switch (widget.selectedRange) {
+        case '1W':
+          return (_spots.length / 7).ceil(); // Show ~7 labels
+        case '1M':
+          return (_spots.length / 10).ceil(); // Show ~10 labels
+        case '3M':
+          return (_spots.length / 12).ceil(); // Show ~12 labels
+        default:
+          return (_spots.length / 6).ceil(); // Show ~6 labels for 1D
+      }
+    } else {
+      // For intraday, show ~6 labels
+      return (_spots.length / 6).ceil();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_spots.isEmpty) {
@@ -65,6 +110,7 @@ class _CustomChartState extends State<CustomChart> {
 
     final minY = _spots.map((s) => s.y).reduce((a, b) => a < b ? a : b) * 0.995;
     final maxY = _spots.map((s) => s.y).reduce((a, b) => a > b ? a : b) * 1.005;
+    final labelInterval = _getLabelInterval();
 
     return Container(
       margin: const EdgeInsets.all(8),
@@ -97,15 +143,17 @@ class _CustomChartState extends State<CustomChart> {
             bottomTitles: AxisTitles(
               sideTitles: SideTitles(
                 showTitles: true,
-                reservedSize: 30,
+                reservedSize: 40,
+                interval: labelInterval.toDouble(),
                 getTitlesWidget: (value, meta) {
-                  if (value.toInt() % 20 == 0 && value.toInt() < _spots.length) {
-                    final tick = widget.ticks[value.toInt()];
+                  final index = value.toInt();
+                  if (index >= 0 && index < widget.ticks.length && index % labelInterval == 0) {
                     return Padding(
                       padding: const EdgeInsets.only(top: 8),
                       child: Text(
-                        '${tick.timestamp.hour}:${tick.timestamp.minute.toString().padLeft(2, '0')}',
+                        _getXAxisLabel(index),
                         style: const TextStyle(fontSize: 10),
+                        textAlign: TextAlign.center,
                       ),
                     );
                   }
@@ -139,9 +187,20 @@ class _CustomChartState extends State<CustomChart> {
             touchTooltipData: LineTouchTooltipData(
               getTooltipItems: (List<LineBarSpot> touchedSpots) {
                 return touchedSpots.map((spot) {
-                  final tick = widget.ticks[spot.x.toInt()];
+                  final index = spot.x.toInt();
+                  if (index >= 0 && index < widget.ticks.length) {
+                    final tick = widget.ticks[index];
+                    final dateTime = widget.isHistorical && widget.selectedRange != '1D'
+                        ? '${tick.timestamp.day}/${tick.timestamp.month} ${tick.timestamp.hour}:${tick.timestamp.minute}'
+                        : '${tick.timestamp.hour}:${tick.timestamp.minute}';
+
+                    return LineTooltipItem(
+                      '${NumberFormatter.formatCurrency(spot.y)}\n$dateTime',
+                      const TextStyle(color: Colors.white, fontSize: 12),
+                    );
+                  }
                   return LineTooltipItem(
-                    '${NumberFormatter.formatCurrency(spot.y)}\n${DateFormatter.formatTime(tick.timestamp)}',
+                    NumberFormatter.formatCurrency(spot.y),
                     const TextStyle(color: Colors.white, fontSize: 12),
                   );
                 }).toList();

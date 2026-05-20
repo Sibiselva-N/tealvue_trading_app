@@ -7,11 +7,14 @@ import '../../models/tick.dart';
 class SocketService {
   IO.Socket? _socket;
   final Map<String, List<void Function(Tick)>> _listeners = {};
+  final Map<String, List<void Function(bool)>> _connectionListeners = {};
   bool _isConnected = false;
   List<String> _currentSubscriptions = [];
   List<String> _pendingSubscriptions = [];
   Timer? _mockTickerTimer;
   final Map<String, Tick> _lastTicks = {};
+  String? _lastError;
+  final Map<String, double> _basePrices = {}; // Store real base prices
 
   void connect() {
     if (_socket != null && _isConnected) return;
@@ -23,42 +26,77 @@ class SocketService {
         'transports': ['websocket'],
         'autoConnect': true,
         'reconnection': true,
-        'reconnectionAttempts': 3,
+        'reconnectionAttempts': 5,
         'reconnectionDelay': 1000,
+        'timeout': 10000,
       });
 
       _socket!.onConnect((_) {
         print('Socket connected successfully');
         _isConnected = true;
+        _lastError = null;
+        _notifyConnectionStatus(true);
 
         if (_pendingSubscriptions.isNotEmpty) {
+          print('Processing pending subscriptions: $_pendingSubscriptions');
           _socket!.emit(AppConstants.subscribeEvent, _pendingSubscriptions);
           _currentSubscriptions = List.from(_pendingSubscriptions);
           _pendingSubscriptions.clear();
         } else if (_currentSubscriptions.isNotEmpty) {
+          print('Resubscribing to: $_currentSubscriptions');
           _socket!.emit(AppConstants.subscribeEvent, _currentSubscriptions);
         }
 
-        // Stop mock timer if real socket is working
         _stopMockTicker();
       });
 
       _socket!.onConnectError((error) {
         print('Socket connection error: $error');
         _isConnected = false;
-        _startMockTicker(); // Start mock data generation
+        _lastError = error.toString();
+        _notifyConnectionStatus(false);
+        _startMockTicker();
       });
 
       _socket!.onDisconnect((_) {
         print('Socket disconnected');
         _isConnected = false;
-        _startMockTicker(); // Start mock data generation
+        _notifyConnectionStatus(false);
+        _startMockTicker();
+      });
+
+      _socket!.onReconnecting((attempt) {
+        print('Socket reconnecting attempt: $attempt');
+        _notifyConnectionStatus(false);
+      });
+
+      _socket!.onReconnect((attempt) {
+        print('Socket reconnected after $attempt attempts');
+        _isConnected = true;
+        _lastError = null;
+        _notifyConnectionStatus(true);
+
+        if (_currentSubscriptions.isNotEmpty) {
+          Future.delayed(const Duration(milliseconds: 500), () {
+            _socket!.emit(AppConstants.subscribeEvent, _currentSubscriptions);
+          });
+        }
+      });
+
+      _socket!.onReconnectError((error) {
+        print('Socket reconnection error: $error');
+        _lastError = error.toString();
+        _notifyConnectionStatus(false);
       });
 
       _socket!.on(AppConstants.tickerEvent, (data) {
         try {
           final tick = Tick.fromJson(data);
           _lastTicks[tick.symbol] = tick;
+          // Store the real base price from the tick data
+          if (!_basePrices.containsKey(tick.symbol)) {
+            _basePrices[tick.symbol] = tick.prevClose;
+          }
           _notifyListeners(tick.symbol, tick);
         } catch (e) {
           print('Error parsing tick: $e');
@@ -67,14 +105,15 @@ class SocketService {
 
       _socket!.connect();
 
-      // Start mock ticker as fallback
       Future.delayed(const Duration(seconds: 3), () {
         if (!_isConnected) {
+          print('Real socket not connected, starting mock ticker');
           _startMockTicker();
         }
       });
     } catch (e) {
       print('Socket creation error: $e');
+      _lastError = e.toString();
       _startMockTicker();
     }
   }
@@ -82,7 +121,7 @@ class SocketService {
   void _startMockTicker() {
     if (_mockTickerTimer != null) return;
 
-    print('Starting mock ticker generator');
+    print('Starting mock ticker generator (fallback mode)');
     _mockTickerTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
       for (var symbol in _currentSubscriptions) {
         _generateAndSendMockTick(symbol);
@@ -91,13 +130,23 @@ class SocketService {
   }
 
   void _stopMockTicker() {
-    _mockTickerTimer?.cancel();
-    _mockTickerTimer = null;
+    if (_mockTickerTimer != null) {
+      print('Stopping mock ticker generator');
+      _mockTickerTimer?.cancel();
+      _mockTickerTimer = null;
+    }
   }
 
   void _generateAndSendMockTick(String symbol) {
     final lastTick = _lastTicks[symbol];
-    final basePrice = _getBasePrice(symbol);
+    // Use real base price if available, otherwise try to fetch from API
+    final basePrice = _basePrices[symbol] ?? _getCachedBasePrice(symbol);
+
+    if (basePrice == 0) {
+      // If no base price available, don't generate mock tick
+      return;
+    }
+
     final variation = (DateTime.now().millisecondsSinceEpoch % 200 - 100) / 1000;
     final newPrice = (lastTick?.ltp ?? basePrice) * (1 + variation);
 
@@ -127,24 +176,22 @@ class SocketService {
     _notifyListeners(symbol, mockTick);
   }
 
-  double _getBasePrice(String symbol) {
-    switch (symbol.toUpperCase()) {
-      case 'RELIANCE':
-        return 2450.0;
-      case 'TCS':
-        return 3400.0;
-      case 'INFY':
-        return 1500.0;
-      case 'HDFCBANK':
-        return 1600.0;
-      case 'ICICIBANK':
-        return 950.0;
-      default:
-        return 1000.0;
+  double _getCachedBasePrice(String symbol) {
+    // Try to get from last tick if available
+    if (_lastTicks.containsKey(symbol)) {
+      return _lastTicks[symbol]!.prevClose;
     }
+    return 0; // Return 0 if no price available
+  }
+
+  // Method to set base price from API data
+  void setBasePrice(String symbol, double price) {
+    _basePrices[symbol] = price;
+    print('Base price set for $symbol: $price');
   }
 
   void disconnect() {
+    print('Disconnecting socket...');
     _stopMockTicker();
     if (_socket != null) {
       _socket!.disconnect();
@@ -162,7 +209,6 @@ class SocketService {
 
     print('Subscribe called for symbols: $symbols');
 
-    // Update current subscriptions
     for (var symbol in symbols) {
       if (!_currentSubscriptions.contains(symbol)) {
         _currentSubscriptions.add(symbol);
@@ -195,7 +241,7 @@ class SocketService {
       _listeners[symbol] = [];
     }
     _listeners[symbol]!.add(callback);
-    print('Added listener for: $symbol');
+    print('Added listener for: $symbol, total: ${_listeners[symbol]!.length}');
 
     subscribe([symbol]);
   }
@@ -205,11 +251,31 @@ class SocketService {
     if (_listeners[symbol]?.isEmpty == true) {
       _listeners.remove(symbol);
     }
+    print('Removed listener for: $symbol');
+  }
+
+  void addConnectionListener(String id, void Function(bool) callback) {
+    if (!_connectionListeners.containsKey(id)) {
+      _connectionListeners[id] = [];
+    }
+    _connectionListeners[id]!.add(callback);
+  }
+
+  void removeConnectionListener(String id) {
+    _connectionListeners.remove(id);
+  }
+
+  void _notifyConnectionStatus(bool connected) {
+    for (var listeners in _connectionListeners.values) {
+      for (var callback in listeners) {
+        callback(connected);
+      }
+    }
   }
 
   void _notifyListeners(String symbol, Tick tick) {
     final listeners = _listeners[symbol];
-    if (listeners != null) {
+    if (listeners != null && listeners.isNotEmpty) {
       for (var callback in listeners) {
         callback(tick);
       }
@@ -217,6 +283,9 @@ class SocketService {
   }
 
   bool get isConnected => _isConnected;
+  String? get lastError => _lastError;
+  List<String> get currentSubscriptions => List.unmodifiable(_currentSubscriptions);
+  bool get isUsingMockData => _mockTickerTimer != null;
 }
 
 final socketServiceProvider = Provider<SocketService>((ref) {

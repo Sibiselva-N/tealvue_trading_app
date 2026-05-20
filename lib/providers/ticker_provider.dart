@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../data/datasources/remote/socket_service.dart';
 import '../data/models/tick.dart';
 import '../data/repositories/market_data_repository.dart';
 import 'watchlist_provider.dart';
@@ -20,15 +21,18 @@ class TickerNotifier extends StateNotifier<Tick?> {
       print('Fetching initial data for $symbol');
       final repository = ref.read(marketDataRepositoryProvider);
       final ticks = await repository.getRealtimeCurrent(symbol, limit: 1);
-      if (ticks.isNotEmpty && state == null) {
+      if (ticks.isNotEmpty) {
         print('✅ Setting initial tick for $symbol: ${ticks.first.ltp}');
         state = ticks.first;
-      } else if (ticks.isEmpty) {
+
+        // Set base price in socket service for mock data fallback
+        final socketService = ref.read(socketServiceProvider);
+        socketService.setBasePrice(symbol, ticks.first.prevClose);
+      } else {
         print('⚠️ No initial data for $symbol');
       }
     } catch (e, stackTrace) {
       print('❌ Error fetching initial data for $symbol: $e');
-      print('Stack trace: $stackTrace');
       _error = e.toString();
     } finally {
       _isLoading = false;

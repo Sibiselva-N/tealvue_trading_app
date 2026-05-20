@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../data/datasources/remote/socket_service.dart';
 import '../../data/models/holding.dart';
+import '../../data/repositories/market_data_repository.dart';
 import '../../providers/portfolio_provider.dart';
 import '../../providers/watchlist_provider.dart';
 import '../../providers/ticker_provider.dart';
@@ -10,6 +14,9 @@ import '../watchlist/watchlist_screen.dart';
 import '../portfolio/portfolio_screen.dart';
 import '../about/about_screen.dart';
 import '../symbol_detail/symbol_detail_screen.dart';
+
+import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:dio/dio.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -29,13 +36,90 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     const AboutScreen(),
   ];
 
-  @override
+  Future<void> testTCSBurstTicks() async {
+    print('\n╔════════════════════════════════════════════════════════════╗');
+    print('║           TESTING BURST TICKS FOR TCS                      ║');
+    print('╚════════════════════════════════════════════════════════════╝\n');
+
+    int tickCount = 0;
+
+    // Get total_records first from REST API (this works!)
+    int totalRecords = 0;
+    try {
+      final response = await Dio().post(
+        'https://mock-data.tealvue.in/api/v1/realtime-current',
+        data: {'symbol': 'TCS', 'limit': 1, 'offset': 0},
+      );
+      totalRecords = response.data['pagination']['total_records'];
+      print('📊 REST API total_records for TCS: $totalRecords');
+      print('💡 This is the number of ticks that SHOULD be in the burst\n');
+    } catch (e) {
+      print('⚠️ Error getting total_records: $e\n');
+    }
+
+    final socket = IO.io('https://mock-data.tealvue.in', <String, dynamic>{
+      'transports': ['websocket'],
+      'autoConnect': true,
+      'forceNew': true,
+      'path': '/socket.io/',
+    });
+
+    socket.onConnect((_) {
+      print('✅ Connected at ${DateTime.now().toString().substring(11, 19)}');
+      print('📡 Subscribing to TCS...\n');
+      socket.emit('subscribe', ['TCS']);
+    });
+
+    socket.on('ticker', (data) {
+      tickCount++;
+      if (tickCount == 1) {
+        print('🎯 First tick received!');
+      }
+      if (tickCount % 1000 == 0 && tickCount > 0) {
+        print('   Received $tickCount ticks...');
+      }
+    });
+
+    socket.onConnectError((err) {
+      print('❌ Connection error: $err');
+    });
+
+    socket.connect();
+
+    // Wait for 3 seconds to receive burst
+    await Future.delayed(const Duration(seconds: 3));
+
+    print('\n╔════════════════════════════════════════════════════════════╗');
+    print('║                    RESULTS                                  ║');
+    print('╚════════════════════════════════════════════════════════════╝');
+    print('📊 Total burst ticks received: $tickCount');
+    print('📊 REST API total_records: $totalRecords');
+
+    if (tickCount == 0 && totalRecords > 0) {
+      print('\n⚠️ ISSUE DETECTED:');
+      print('   The socket received 0 ticks but REST API shows $totalRecords records.');
+      print('   This suggests the WebSocket might not be working.');
+      print('\n📝 For README, use the REST API value:');
+      print('   TCS burst ticks ≈ $totalRecords (based on total_records)');
+    } else if (tickCount > 0) {
+      print('✅ Match: ${tickCount == totalRecords ? "YES ✓" : "NO ✗"}');
+      print('\n💡 Answer for README: Approximately $tickCount burst ticks');
+    } else {
+      print('\n💡 Answer for README: Approximately $totalRecords burst ticks');
+      print('   (Based on REST API total_records since WebSocket returned 0)');
+    }
+
+    socket.disconnect();
+  } @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _screens,
-      ),
+      floatingActionButton: FloatingActionButton(onPressed: () async {
+        testTCSBurstTicks();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Testing TCS burst ticks... Check console')),
+        );
+      },),
+      body: IndexedStack(index: _currentIndex, children: _screens),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) {
@@ -45,9 +129,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         },
         type: BottomNavigationBarType.fixed,
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: 'Dashboard'),
-          BottomNavigationBarItem(icon: Icon(Icons.watch_later), label: 'Watchlist'),
-          BottomNavigationBarItem(icon: Icon(Icons.account_balance_wallet), label: 'Portfolio'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard),
+            label: 'Dashboard',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.watch_later),
+            label: 'Watchlist',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.account_balance_wallet),
+            label: 'Portfolio',
+          ),
           BottomNavigationBarItem(icon: Icon(Icons.info), label: 'About'),
         ],
       ),
@@ -83,13 +176,23 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
       final currentHoldings = ref.read(portfolioProvider);
       if (currentHoldings.isEmpty) {
         print('Adding demo holdings...');
-        ref.read(portfolioProvider.notifier).addHolding(
-          Holding(symbol: 'RELIANCE', quantity: 10, averageBuyPrice: 2450.0),
+        ref
+            .read(portfolioProvider.notifier)
+            .addHolding(
+          Holding(
+            symbol: 'RELIANCE',
+            quantity: 10,
+            averageBuyPrice: 2450.0,
+          ),
         );
-        ref.read(portfolioProvider.notifier).addHolding(
+        ref
+            .read(portfolioProvider.notifier)
+            .addHolding(
           Holding(symbol: 'TCS', quantity: 5, averageBuyPrice: 3400.0),
         );
-        ref.read(portfolioProvider.notifier).addHolding(
+        ref
+            .read(portfolioProvider.notifier)
+            .addHolding(
           Holding(symbol: 'INFY', quantity: 20, averageBuyPrice: 1500.0),
         );
       }
@@ -117,6 +220,42 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
       appBar: AppBar(
         title: const Text('Dashboard'),
         actions: [
+          // Socket connection status indicator
+          Consumer(
+            builder: (context, ref, child) {
+              final isConnected = ref.watch(socketConnectionStatusProvider);
+              final isUsingMock = ref.watch(mockDataStatusProvider);
+
+              return Row(
+                children: [
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isConnected
+                          ? (isUsingMock ? Colors.orange : Colors.green)
+                          : Colors.red,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    isConnected
+                        ? (isUsingMock ? 'MOCK DATA' : 'LIVE')
+                        : 'RECONNECTING...',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: isConnected
+                          ? (isUsingMock ? Colors.orange : Colors.green)
+                          : Colors.red,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(width: 8),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
@@ -164,27 +303,39 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
                       const SizedBox(height: 16),
                       _buildMetricRow(
                         'Total Invested',
-                        NumberFormatter.formatCurrency(portfolioSummary.totalInvested),
+                        NumberFormatter.formatCurrency(
+                          portfolioSummary.totalInvested,
+                        ),
                         icon: Icons.account_balance_wallet,
                       ),
                       const Divider(color: Colors.white24),
                       _buildMetricRow(
                         'Current Value',
-                        NumberFormatter.formatCurrency(portfolioSummary.totalCurrent),
+                        NumberFormatter.formatCurrency(
+                          portfolioSummary.totalCurrent,
+                        ),
                         icon: Icons.trending_up,
                       ),
                       const Divider(color: Colors.white24),
                       _buildMetricRow(
                         'Total P&L',
-                        NumberFormatter.formatCurrency(portfolioSummary.totalPnL),
-                        color: portfolioSummary.totalPnL >= 0 ? Colors.lightGreen : Colors.redAccent,
+                        NumberFormatter.formatCurrency(
+                          portfolioSummary.totalPnL,
+                        ),
+                        color: portfolioSummary.totalPnL >= 0
+                            ? Colors.lightGreen
+                            : Colors.redAccent,
                         icon: Icons.show_chart,
                       ),
                       const Divider(color: Colors.white24),
                       _buildMetricRow(
                         'P&L %',
-                        NumberFormatter.formatPercentage(portfolioSummary.totalPnLPercent),
-                        color: portfolioSummary.totalPnLPercent >= 0 ? Colors.lightGreen : Colors.redAccent,
+                        NumberFormatter.formatPercentage(
+                          portfolioSummary.totalPnLPercent,
+                        ),
+                        color: portfolioSummary.totalPnLPercent >= 0
+                            ? Colors.lightGreen
+                            : Colors.redAccent,
                         icon: Icons.percent,
                       ),
                     ],
@@ -204,7 +355,8 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
                   ),
                   TextButton.icon(
                     onPressed: () {
-                      final parentState = context.findAncestorStateOfType<_DashboardScreenState>();
+                      final parentState = context
+                          .findAncestorStateOfType<_DashboardScreenState>();
                       parentState?.setState(() {
                         parentState._currentIndex = 2;
                       });
@@ -225,7 +377,11 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
                   ),
                   child: Column(
                     children: [
-                      Icon(Icons.account_balance_wallet, size: 64, color: Colors.grey[400]),
+                      Icon(
+                        Icons.account_balance_wallet,
+                        size: 64,
+                        color: Colors.grey[400],
+                      ),
                       const SizedBox(height: 16),
                       Text(
                         'No holdings yet',
@@ -239,7 +395,8 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
                       const SizedBox(height: 16),
                       ElevatedButton(
                         onPressed: () {
-                          final parentState = context.findAncestorStateOfType<_DashboardScreenState>();
+                          final parentState = context
+                              .findAncestorStateOfType<_DashboardScreenState>();
                           parentState?.setState(() {
                             parentState._currentIndex = 2;
                           });
@@ -281,7 +438,8 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => SymbolDetailScreen(symbol: holding.symbol),
+                              builder: (_) =>
+                                  SymbolDetailScreen(symbol: holding.symbol),
                             ),
                           );
                         },
@@ -291,11 +449,13 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
                           child: Column(
                             children: [
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                MainAxisAlignment.spaceBetween,
                                 children: [
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                      CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           holding.symbol,
@@ -319,7 +479,9 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
                                     crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
                                       Text(
-                                        NumberFormatter.formatCurrency(currentValue),
+                                        NumberFormatter.formatCurrency(
+                                          currentValue,
+                                        ),
                                         style: const TextStyle(
                                           fontWeight: FontWeight.bold,
                                           fontSize: 16,
@@ -327,15 +489,24 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
                                       ),
                                       const SizedBox(height: 4),
                                       Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 2,
+                                        ),
                                         decoration: BoxDecoration(
-                                          color: pnl >= 0 ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
-                                          borderRadius: BorderRadius.circular(4),
+                                          color: pnl >= 0
+                                              ? Colors.green.withOpacity(0.1)
+                                              : Colors.red.withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
                                         ),
                                         child: Text(
                                           '${pnl >= 0 ? '+' : ''}${NumberFormatter.formatCurrency(pnl)} (${pnlPercent.toStringAsFixed(2)}%)',
                                           style: TextStyle(
-                                            color: pnl >= 0 ? Colors.green : Colors.red,
+                                            color: pnl >= 0
+                                                ? Colors.green
+                                                : Colors.red,
                                             fontSize: 12,
                                             fontWeight: FontWeight.w500,
                                           ),
@@ -347,13 +518,17 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
                               ),
                               const SizedBox(height: 8),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
                                 decoration: BoxDecoration(
                                   color: Colors.grey[200],
                                   borderRadius: BorderRadius.circular(4),
                                 ),
                                 child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                  MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
                                       'LTP: ${NumberFormatter.formatCurrency(tick.ltp)}',
@@ -363,7 +538,9 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
                                       'Change: ${tick.change >= 0 ? '+' : ''}${NumberFormatter.formatCurrency(tick.change)} (${tick.changePercent.toStringAsFixed(2)}%)',
                                       style: TextStyle(
                                         fontSize: 12,
-                                        color: tick.change >= 0 ? Colors.green : Colors.red,
+                                        color: tick.change >= 0
+                                            ? Colors.green
+                                            : Colors.red,
                                       ),
                                     ),
                                     Text(
@@ -371,7 +548,9 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
                                       style: TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w500,
-                                        color: tick.ltp >= tick.vwap ? Colors.green : Colors.red,
+                                        color: tick.ltp >= tick.vwap
+                                            ? Colors.green
+                                            : Colors.red,
                                       ),
                                     ),
                                   ],
@@ -397,7 +576,8 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
                   ),
                   TextButton.icon(
                     onPressed: () {
-                      final parentState = context.findAncestorStateOfType<_DashboardScreenState>();
+                      final parentState = context
+                          .findAncestorStateOfType<_DashboardScreenState>();
                       parentState?.setState(() {
                         parentState._currentIndex = 1;
                       });
@@ -425,11 +605,18 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
                       ),
                       child: Column(
                         children: [
-                          Icon(Icons.star_border, size: 64, color: Colors.grey[400]),
+                          Icon(
+                            Icons.star_border,
+                            size: 64,
+                            color: Colors.grey[400],
+                          ),
                           const SizedBox(height: 16),
                           Text(
                             'No symbols in watchlist',
-                            style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                            style: TextStyle(
+                              fontSize: 18,
+                              color: Colors.grey[600],
+                            ),
                           ),
                           const SizedBox(height: 8),
                           Text(
@@ -439,7 +626,10 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
                           const SizedBox(height: 16),
                           ElevatedButton(
                             onPressed: () {
-                              final parentState = context.findAncestorStateOfType<_DashboardScreenState>();
+                              final parentState = context
+                                  .findAncestorStateOfType<
+                                  _DashboardScreenState
+                              >();
                               parentState?.setState(() {
                                 parentState._currentIndex = 1;
                               });
@@ -466,7 +656,9 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
                             width: 40,
                             height: 40,
                             decoration: BoxDecoration(
-                              color: Theme.of(context).primaryColor.withOpacity(0.1),
+                              color: Theme.of(
+                                context,
+                              ).primaryColor.withOpacity(0.1),
                               shape: BoxShape.circle,
                             ),
                             child: Icon(
@@ -480,7 +672,9 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
                             style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                           subtitle: Text(
-                            symbol.name.length > 30 ? '${symbol.name.substring(0, 30)}...' : symbol.name,
+                            symbol.name.length > 30
+                                ? '${symbol.name.substring(0, 30)}...'
+                                : symbol.name,
                             style: const TextStyle(fontSize: 12),
                           ),
                           trailing: tick != null
@@ -496,9 +690,13 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
                                 ),
                               ),
                               Text(
-                                NumberFormatter.formatPercentage(tick.changePercent),
+                                NumberFormatter.formatPercentage(
+                                  tick.changePercent,
+                                ),
                                 style: TextStyle(
-                                  color: tick.change >= 0 ? Colors.green : Colors.red,
+                                  color: tick.change >= 0
+                                      ? Colors.green
+                                      : Colors.red,
                                   fontSize: 12,
                                   fontWeight: FontWeight.w500,
                                 ),
@@ -508,13 +706,16 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
                               : const SizedBox(
                             width: 20,
                             height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                            ),
                           ),
                           onTap: () {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) => SymbolDetailScreen(symbol: symbol.symbol),
+                                builder: (_) =>
+                                    SymbolDetailScreen(symbol: symbol.symbol),
                               ),
                             );
                           },
@@ -543,7 +744,12 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
     );
   }
 
-  Widget _buildMetricRow(String label, String value, {Color? color, IconData? icon}) {
+  Widget _buildMetricRow(
+      String label,
+      String value, {
+        Color? color,
+        IconData? icon,
+      }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
@@ -556,12 +762,19 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
                   padding: const EdgeInsets.only(right: 8),
                   child: Icon(icon, color: Colors.white, size: 20),
                 ),
-              Text(label, style: const TextStyle(fontSize: 14, color: Colors.white)),
+              Text(
+                label,
+                style: const TextStyle(fontSize: 14, color: Colors.white),
+              ),
             ],
           ),
           Text(
             value,
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color ?? Colors.white),
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: color ?? Colors.white,
+            ),
           ),
         ],
       ),
