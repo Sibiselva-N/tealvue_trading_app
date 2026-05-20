@@ -496,7 +496,7 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
                                 ),
                               ),
                               Text(
-                                '${tick.change >= 0 ? '+' : ''}${NumberFormatter.formatPercentage(tick.changePercent)}',
+                                NumberFormatter.formatPercentage(tick.changePercent),
                                 style: TextStyle(
                                   color: tick.change >= 0 ? Colors.green : Colors.red,
                                   fontSize: 12,

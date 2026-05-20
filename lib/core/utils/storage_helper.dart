@@ -6,28 +6,31 @@ class StorageHelper {
   static const String _watchlistKey = 'watchlist';
   static const String _themeKey = 'theme_mode';
 
+  // Save watchlist to persistent storage
   static Future<void> saveWatchlist(List<String> watchlist) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList(_watchlistKey, watchlist);
+      print('Watchlist saved: $watchlist');
     } catch (e) {
       print('Error saving watchlist: $e');
     }
   }
 
-  static List<String> getWatchlist() {
+  // Load watchlist from persistent storage
+  static Future<List<String>> getWatchlist() async {
     try {
-      // In production, load from SharedPreferences
-      // For demo with proper async handling:
-      // final prefs = await SharedPreferences.getInstance();
-      // return prefs.getStringList(_watchlistKey) ?? ['RELIANCE', 'TCS', 'INFY', 'HDFC', 'ICICIBANK'];
-
-      // For now, return default watchlist (will be loaded async in real app)
-      return ['RELIANCE', 'TCS', 'INFY', 'HDFC', 'ICICIBANK'];
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getStringList(_watchlistKey);
+      if (saved != null && saved.isNotEmpty) {
+        print('Watchlist loaded: $saved');
+        return saved;
+      }
     } catch (e) {
       print('Error loading watchlist: $e');
-      return ['RELIANCE', 'TCS', 'INFY', 'HDFC', 'ICICIBANK'];
     }
+    // Return default watchlist if nothing is saved
+    return ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK'];
   }
 
   static Future<void> saveThemeMode(ThemeMode mode) async {
@@ -57,10 +60,7 @@ class StorageHelper {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setDouble('cached_price_$symbol', price);
-      await prefs.setInt(
-        'cached_timestamp_$symbol',
-        DateTime.now().millisecondsSinceEpoch,
-      );
+      await prefs.setInt('cached_timestamp_$symbol', DateTime.now().millisecondsSinceEpoch);
     } catch (e) {
       print('Error caching price: $e');
     }
@@ -71,11 +71,9 @@ class StorageHelper {
       final prefs = await SharedPreferences.getInstance();
       final timestamp = prefs.getInt('cached_timestamp_$symbol');
 
-      // Check if cache is less than 24 hours old
       if (timestamp != null) {
         final age = DateTime.now().millisecondsSinceEpoch - timestamp;
-        if (age < 86400000) {
-          // 24 hours
+        if (age < 86400000) { // 24 hours
           return prefs.getDouble('cached_price_$symbol');
         }
       }
@@ -90,8 +88,7 @@ class StorageHelper {
       final prefs = await SharedPreferences.getInstance();
       final keys = prefs.getKeys();
       for (var key in keys) {
-        if (key.startsWith('cached_price_') ||
-            key.startsWith('cached_timestamp_')) {
+        if (key.startsWith('cached_price_') || key.startsWith('cached_timestamp_')) {
           await prefs.remove(key);
         }
       }

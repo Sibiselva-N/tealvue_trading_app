@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/watchlist_provider.dart';
 import '../../providers/ticker_provider.dart';
@@ -23,11 +24,22 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
     super.dispose();
   }
 
+  void _showToast(BuildContext context, String message, {bool isError = true}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.red : Colors.green,
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Watch both watchlist and symbols to trigger rebuilds
     final watchlist = ref.watch(watchlistProvider);
     final symbolsAsync = ref.watch(symbolsProvider);
+    final validSymbols = ref.watch(validSymbolsProvider);
 
     // Force rebuild when watchlist changes
     final watchlistLength = watchlist.length;
@@ -75,7 +87,7 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
           if (!_isSearching)
             IconButton(
               icon: const Icon(Icons.add_circle_outline),
-              onPressed: () => _showAddSymbolManuallyDialog(),
+              onPressed: () => _showAddSymbolManuallyDialog(validSymbols),
             ),
         ],
       ),
@@ -105,14 +117,10 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
                               child: const Text('Cancel'),
                             ),
                             TextButton(
-                              onPressed: () {
-                                for (var symbol in watchlist.toList()) {
-                                  ref.read(watchlistProvider.notifier).removeSymbol(symbol);
-                                }
+                              onPressed: () async {
+                                await ref.read(watchlistProvider.notifier).clearAll();
                                 Navigator.pop(context);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Watchlist cleared')),
-                                );
+                                _showToast(context, 'Watchlist cleared', isError: false);
                               },
                               style: TextButton.styleFrom(foregroundColor: Colors.red),
                               child: const Text('Clear All'),
@@ -135,7 +143,7 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
                 setState(() {});
               },
               child: _isSearching
-                  ? _buildSearchResults(symbolsAsync, watchlist)
+                  ? _buildSearchResults(symbolsAsync, watchlist, validSymbols)
                   : _buildWatchlistContent(symbolsAsync, watchlist),
             ),
           ),
@@ -181,12 +189,6 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
                   icon: const Icon(Icons.search),
                   label: const Text('Add Symbols'),
                 ),
-                const SizedBox(height: 16),
-                OutlinedButton.icon(
-                  onPressed: () => _showAddSymbolManuallyDialog(),
-                  icon: const Icon(Icons.edit),
-                  label: const Text('Add Manually'),
-                ),
               ],
             ),
           );
@@ -207,19 +209,9 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
                 padding: const EdgeInsets.only(right: 20),
                 child: const Icon(Icons.delete, color: Colors.white),
               ),
-              onDismissed: (direction) {
-                ref.read(watchlistProvider.notifier).removeSymbol(symbol.symbol);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('${symbol.symbol} removed from watchlist'),
-                    action: SnackBarAction(
-                      label: 'Undo',
-                      onPressed: () {
-                        ref.read(watchlistProvider.notifier).addSymbol(symbol.symbol);
-                      },
-                    ),
-                  ),
-                );
+              onDismissed: (direction) async {
+                await ref.read(watchlistProvider.notifier).removeSymbol(symbol.symbol);
+                _showToast(context, '${symbol.symbol} removed from watchlist', isError: false);
               },
               child: Card(
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -265,7 +257,7 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
-                          '${tick.change >= 0 ? '+' : ''}${NumberFormatter.formatPercentage(tick.changePercent)}',
+                          NumberFormatter.formatPercentage(tick.changePercent),
                           style: TextStyle(
                             color: tick.change >= 0 ? Colors.green : Colors.red,
                             fontSize: 12,
@@ -299,7 +291,7 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
     );
   }
 
-  Widget _buildSearchResults(AsyncValue<List<dynamic>> symbolsAsync, List<String> watchlist) {
+  Widget _buildSearchResults(AsyncValue<List<dynamic>> symbolsAsync, List<String> watchlist, Set<String> validSymbols) {
     return symbolsAsync.when(
       data: (allSymbols) {
         final filteredSymbols = _searchQuery.isEmpty
@@ -327,7 +319,7 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
                 ),
                 const SizedBox(height: 24),
                 OutlinedButton.icon(
-                  onPressed: () => _showAddSymbolManuallyDialogWithQuery(),
+                  onPressed: () => _showAddSymbolManuallyDialogWithQuery(validSymbols),
                   icon: const Icon(Icons.add),
                   label: Text('Add "$_searchQuery" manually'),
                 ),
@@ -362,20 +354,15 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
                     isInWatchlist ? Icons.star : Icons.star_border,
                     color: isInWatchlist ? Colors.amber : null,
                   ),
-                  onPressed: () {
+                  onPressed: () async {
                     if (isInWatchlist) {
-                      ref.read(watchlistProvider.notifier).removeSymbol(symbol.symbol);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('${symbol.symbol} removed from watchlist')),
-                      );
+                      await ref.read(watchlistProvider.notifier).removeSymbol(symbol.symbol);
+                      _showToast(context, '${symbol.symbol} removed from watchlist', isError: false);
                     } else {
-                      ref.read(watchlistProvider.notifier).addSymbol(symbol.symbol);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('${symbol.symbol} added to watchlist')),
-                      );
-                      // Force rebuild by updating state
-                      setState(() {});
+                      await ref.read(watchlistProvider.notifier).addSymbol(symbol.symbol);
+                      _showToast(context, '${symbol.symbol} added to watchlist', isError: false);
                     }
+                    setState(() {});
                   },
                 ),
                 onTap: () {
@@ -396,7 +383,7 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
     );
   }
 
-  void _showAddSymbolManuallyDialog() {
+  void _showAddSymbolManuallyDialog(Set<String> validSymbols) {
     final TextEditingController symbolController = TextEditingController();
 
     showDialog(
@@ -417,7 +404,11 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
               ),
               textCapitalization: TextCapitalization.characters,
               autofocus: true,
-            ),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z]')), // Only letters
+                UpperCaseTextFormatter(), // Convert to uppercase
+              ],
+            )
           ],
         ),
         actions: [
@@ -426,16 +417,18 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               final symbol = symbolController.text.trim().toUpperCase();
               if (symbol.isNotEmpty) {
-                ref.read(watchlistProvider.notifier).addSymbol(symbol);
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('$symbol added to watchlist')),
-                );
-                // Force rebuild
-                setState(() {});
+                // Validate symbol against valid symbols list
+                if (validSymbols.contains(symbol)) {
+                  await ref.read(watchlistProvider.notifier).addSymbol(symbol);
+                  Navigator.pop(context);
+                  _showToast(context, '$symbol added to watchlist', isError: false);
+                  setState(() {});
+                } else {
+                  _showToast(context, 'Invalid symbol: $symbol is not recognized', isError: true);
+                }
               }
             },
             child: const Text('Add'),
@@ -445,7 +438,7 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
     );
   }
 
-  void _showAddSymbolManuallyDialogWithQuery() {
+  void _showAddSymbolManuallyDialogWithQuery(Set<String> validSymbols) {
     final TextEditingController symbolController = TextEditingController(text: _searchQuery.toUpperCase());
 
     showDialog(
@@ -475,25 +468,37 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               final symbol = symbolController.text.trim().toUpperCase();
               if (symbol.isNotEmpty) {
-                ref.read(watchlistProvider.notifier).addSymbol(symbol);
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('$symbol added to watchlist')),
-                );
-                setState(() {
-                  _isSearching = false;
-                  _searchQuery = '';
-                  _searchController.clear();
-                });
+                // Validate symbol against valid symbols list
+                if (validSymbols.contains(symbol)) {
+                  await ref.read(watchlistProvider.notifier).addSymbol(symbol);
+                  Navigator.pop(context);
+                  _showToast(context, '$symbol added to watchlist', isError: false);
+                  setState(() {
+                    _isSearching = false;
+                    _searchQuery = '';
+                    _searchController.clear();
+                  });
+                } else {
+                  _showToast(context, 'Invalid symbol: $symbol is not recognized', isError: true);
+                }
               }
             },
             child: const Text('Add'),
           ),
         ],
       ),
+    );
+  }
+}class UpperCaseTextFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    return TextEditingValue(
+      text: newValue.text.toUpperCase(),
+      selection: newValue.selection,
     );
   }
 }

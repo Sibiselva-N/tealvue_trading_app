@@ -4,7 +4,8 @@ class NumberFormatter {
   }
 
   static String formatPercentage(double value) {
-    final sign = value >= 0 ? '+' : '';
+    // Fix: Only add one plus sign for positive values
+    final sign = value > 0 ? '+' : '';
     return '$sign${value.toStringAsFixed(2)}%';
   }
 
@@ -16,5 +17,10 @@ class NumberFormatter {
     } else {
       return value.toString();
     }
+  }
+
+  static String formatChange(double change, double changePercent) {
+    final sign = change > 0 ? '+' : '';
+    return '$sign${formatCurrency(change)} ($sign${changePercent.toStringAsFixed(2)}%)';
   }
 }

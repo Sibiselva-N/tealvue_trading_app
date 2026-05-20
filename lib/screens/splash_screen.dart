@@ -24,14 +24,16 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   Future<void> _initialize() async {
     setState(() => _status = 'Loading watchlist...');
 
-    // Get watchlist
-    final watchlist = ref.read(watchlistProvider);
-    print('Watchlist: $watchlist');
+    // Load watchlist - this will now load from persistent storage
+    final watchlistNotifier = ref.read(watchlistProvider.notifier);
+    // The watchlist will be loaded automatically when the provider initializes
+
+    await Future.delayed(const Duration(milliseconds: 500));
 
     setState(() => _status = 'Connecting to market data...');
 
-    // Initialize socket
     final marketRepo = ref.read(marketDataRepositoryProvider);
+    final watchlist = ref.read(watchlistProvider);
 
     // Wait for socket connection
     int attempts = 0;
@@ -43,19 +45,17 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
 
     if (marketRepo.isSocketConnected) {
       setState(() => _status = 'Connected! Loading data...');
-      print('Socket is connected, subscribing to symbols');
 
       if (watchlist.isNotEmpty) {
         marketRepo.subscribeSymbols(watchlist);
       } else {
-        const defaultSymbols = ['RELIANCE', 'TCS', 'INFY'];
+        const defaultSymbols = ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK'];
         marketRepo.subscribeSymbols(defaultSymbols);
       }
 
-      // Wait a bit for initial data
-      await Future.delayed(const Duration(seconds: 2));
+      await Future.delayed(const Duration(seconds: 1));
     } else {
-      setState(() => _status = 'Connection timeout, continuing anyway...');
+      setState(() => _status = 'Connection timeout, continuing...');
       await Future.delayed(const Duration(seconds: 1));
     }
 

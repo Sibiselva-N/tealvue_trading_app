@@ -120,7 +120,10 @@ class _SymbolDetailScreenState extends ConsumerState<SymbolDetailScreen> {
             if (tick != null)
               Text(
                 NumberFormatter.formatCurrency(tick.ltp),
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.normal),
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.normal,
+                ),
               ),
           ],
         ),
@@ -129,7 +132,9 @@ class _SymbolDetailScreenState extends ConsumerState<SymbolDetailScreen> {
             icon: Icon(isInWatchlist ? Icons.star : Icons.star_border),
             onPressed: () {
               if (isInWatchlist) {
-                ref.read(watchlistProvider.notifier).removeSymbol(widget.symbol);
+                ref
+                    .read(watchlistProvider.notifier)
+                    .removeSymbol(widget.symbol);
               } else {
                 ref.read(watchlistProvider.notifier).addSymbol(widget.symbol);
               }
@@ -191,21 +196,34 @@ class _SymbolDetailScreenState extends ConsumerState<SymbolDetailScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        tick != null ? NumberFormatter.formatCurrency(tick.ltp) : 'N/A',
-                        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+                        tick != null
+                            ? NumberFormatter.formatCurrency(tick.ltp)
+                            : 'N/A',
+                        style: const TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       if (tick != null)
                         Text(
                           'Prev Close: ${NumberFormatter.formatCurrency(tick.prevClose)}',
-                          style: const TextStyle(fontSize: 12, color: Colors.grey),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
                         ),
                     ],
                   ),
                   if (tick != null)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
-                        color: tick.change >= 0 ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
+                        color: tick.change >= 0
+                            ? Colors.green.withOpacity(0.1)
+                            : Colors.red.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Column(
@@ -215,14 +233,18 @@ class _SymbolDetailScreenState extends ConsumerState<SymbolDetailScreen> {
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
-                              color: tick.change >= 0 ? Colors.green : Colors.red,
+                              color: tick.change >= 0
+                                  ? Colors.green
+                                  : Colors.red,
                             ),
                           ),
                           Text(
-                            '(${tick.change >= 0 ? '+' : ''}${tick.changePercent.toStringAsFixed(2)}%)',
+                            '(${NumberFormatter.formatPercentage(tick.changePercent)})',
                             style: TextStyle(
                               fontSize: 12,
-                              color: tick.change >= 0 ? Colors.green : Colors.red,
+                              color: tick.change >= 0
+                                  ? Colors.green
+                                  : Colors.red,
                             ),
                           ),
                         ],
@@ -244,7 +266,11 @@ class _SymbolDetailScreenState extends ConsumerState<SymbolDetailScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _buildInfoChip('Volume', tick?.ttq?.toDouble(), isCurrency: false),
+                  _buildInfoChip(
+                    'Volume',
+                    tick?.ttq?.toDouble(),
+                    isCurrency: false,
+                  ),
                   _buildInfoChip('Turnover', tick?.turnover),
                 ],
               ),
@@ -296,9 +322,14 @@ class _SymbolDetailScreenState extends ConsumerState<SymbolDetailScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildStatItem('Day Range',
-                    '${NumberFormatter.formatCurrency(tick.low)} - ${NumberFormatter.formatCurrency(tick.high)}'),
-                _buildStatItem('Volume', NumberFormatter.formatVolume(tick.ttq)),
+                _buildStatItem(
+                  'Day Range',
+                  '${NumberFormatter.formatCurrency(tick.low)} - ${NumberFormatter.formatCurrency(tick.high)}',
+                ),
+                _buildStatItem(
+                  'Volume',
+                  NumberFormatter.formatVolume(tick.ttq),
+                ),
               ],
             ),
           ),
@@ -313,7 +344,9 @@ class _SymbolDetailScreenState extends ConsumerState<SymbolDetailScreen> {
         const SizedBox(height: 4),
         Text(
           value != null
-              ? (isCurrency ? NumberFormatter.formatCurrency(value) : value.toString())
+              ? (isCurrency
+                    ? NumberFormatter.formatCurrency(value)
+                    : value.toString())
               : 'N/A',
           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
         ),
@@ -326,7 +359,10 @@ class _SymbolDetailScreenState extends ConsumerState<SymbolDetailScreen> {
       children: [
         Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
         const SizedBox(height: 4),
-        Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+        Text(
+          value,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+        ),
       ],
     );
   }
