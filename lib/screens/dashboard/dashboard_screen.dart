@@ -22,46 +22,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   int _currentIndex = 0;
   bool _demoDataInitialized = false;
 
-  final List<Widget> _screens = const [
-    DashboardContent(),
-    WatchlistScreen(),
-    PortfolioScreen(),
-    AboutScreen(),
+  final List<Widget> _screens = [
+    const DashboardContent(),
+    const WatchlistScreen(),
+    const PortfolioScreen(),
+    const AboutScreen(),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      floatingActionButton: FloatingActionButton(
-        onPressed: () async {
-          final dio = Dio();
-          try {
-            print('\n=== DEBUGGING API ===');
-            print('\n1. Testing Symbols API:');
-            final symbolsResp = await dio.get('https://mock-data.tealvue.in/api/v1/symbols');
-            print('Symbols response: ${symbolsResp.data}');
-
-            print('\n2. Testing Realtime API for RELIANCE:');
-            final realtimeResp = await dio.post(
-              'https://mock-data.tealvue.in/api/v1/realtime-current',
-              data: {'symbol': 'RELIANCE', 'limit': 10, 'offset': 0},
-            );
-            print('Realtime response status: ${realtimeResp.statusCode}');
-            print('Realtime response data: ${realtimeResp.data}');
-
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Check console for API debug info'),
-                duration: Duration(seconds: 3),
-              ),
-            );
-          } catch (e) {
-            print('Error: $e');
-          }
-        },
-        child: const Icon(Icons.bug_report),
+      body: IndexedStack(
+        index: _currentIndex,
+        children: _screens,
       ),
-      body: _screens[_currentIndex],
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) {
@@ -69,6 +43,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             _currentIndex = index;
           });
         },
+        type: BottomNavigationBarType.fixed,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: 'Dashboard'),
           BottomNavigationBarItem(icon: Icon(Icons.watch_later), label: 'Watchlist'),
@@ -97,17 +72,14 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
   }
 
   void _initializeDemoData() async {
-    // Prevent multiple initialization
     if (_demoDataInitialized) return;
     _demoDataInitialized = true;
 
     final holdings = ref.read(portfolioProvider);
 
-    // Only add demo data if portfolio is empty AND we haven't added it before
     if (holdings.isEmpty) {
       await Future.delayed(const Duration(milliseconds: 500));
 
-      // Double-check again after delay to ensure no race condition
       final currentHoldings = ref.read(portfolioProvider);
       if (currentHoldings.isEmpty) {
         print('Adding demo holdings...');
@@ -132,12 +104,14 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
     final symbolsAsync = ref.watch(symbolsProvider);
 
     // Remove duplicates from holdings by symbol
-    final uniqueHoldings = holdings.fold<List<Holding>>([], (list, holding) {
-      if (!list.any((h) => h.symbol == holding.symbol)) {
-        list.add(holding);
+    final uniqueHoldings = <Holding>[];
+    final seenSymbols = <String>{};
+    for (var holding in holdings) {
+      if (!seenSymbols.contains(holding.symbol)) {
+        seenSymbols.add(holding.symbol);
+        uniqueHoldings.add(holding);
       }
-      return list;
-    });
+    }
 
     return Scaffold(
       appBar: AppBar(

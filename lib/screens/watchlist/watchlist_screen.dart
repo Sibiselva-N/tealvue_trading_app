@@ -25,8 +25,12 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Watch both watchlist and symbols to trigger rebuilds
     final watchlist = ref.watch(watchlistProvider);
     final symbolsAsync = ref.watch(symbolsProvider);
+
+    // Force rebuild when watchlist changes
+    final watchlistLength = watchlist.length;
 
     return Scaffold(
       appBar: AppBar(
@@ -102,7 +106,7 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
                             ),
                             TextButton(
                               onPressed: () {
-                                for (var symbol in watchlist) {
+                                for (var symbol in watchlist.toList()) {
                                   ref.read(watchlistProvider.notifier).removeSymbol(symbol);
                                 }
                                 Navigator.pop(context);
@@ -369,6 +373,8 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(content: Text('${symbol.symbol} added to watchlist')),
                       );
+                      // Force rebuild by updating state
+                      setState(() {});
                     }
                   },
                 ),
@@ -428,6 +434,8 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen> {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text('$symbol added to watchlist')),
                 );
+                // Force rebuild
+                setState(() {});
               }
             },
             child: const Text('Add'),
