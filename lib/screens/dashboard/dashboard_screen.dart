@@ -113,12 +113,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   } @override
   Widget build(BuildContext context) {
     return Scaffold(
-      floatingActionButton: FloatingActionButton(onPressed: () async {
-        testTCSBurstTicks();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Testing TCS burst ticks... Check console')),
-        );
-      },),
+      // floatingActionButton: FloatingActionButton(onPressed: () async {
+      //   testTCSBurstTicks();
+      //   ScaffoldMessenger.of(context).showSnackBar(
+      //     const SnackBar(content: Text('Testing TCS burst ticks... Check console')),
+      //   );
+      // },),
       body: IndexedStack(index: _currentIndex, children: _screens),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
@@ -217,41 +217,65 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
     }
 
     return Scaffold(
+      // In your DashboardContent build method, update the app bar section:
+
       appBar: AppBar(
         title: const Text('Dashboard'),
         actions: [
-          // Socket connection status indicator
+          // Socket connection status indicator - This will now auto-update
           Consumer(
             builder: (context, ref, child) {
-              final isConnected = ref.watch(socketConnectionStatusProvider);
-              final isUsingMock = ref.watch(mockDataStatusProvider);
+              final connectionAsync = ref.watch(socketConnectionStatusProvider);
 
-              return Row(
-                children: [
-                  Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: isConnected
-                          ? (isUsingMock ? Colors.orange : Colors.green)
-                          : Colors.red,
+              return connectionAsync.when(
+                data: (isConnected) {
+                  final isUsingMock = !isConnected; // If not connected, using mock
+                  return Row(
+                    children: [
+                      Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: isConnected
+                              ? (isUsingMock ? Colors.orange : Colors.green)
+                              : Colors.red,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        isConnected
+                            ? (isUsingMock ? 'MOCK DATA' : 'LIVE')
+                            : 'RECONNECTING...',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: isConnected
+                              ? (isUsingMock ? Colors.orange : Colors.green)
+                              : Colors.red,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+                loading: () => const Row(
+                  children: [
+                    SizedBox(
+                      width: 10,
+                      height: 10,
+                      child: CircularProgressIndicator(strokeWidth: 2),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    isConnected
-                        ? (isUsingMock ? 'MOCK DATA' : 'LIVE')
-                        : 'RECONNECTING...',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: isConnected
-                          ? (isUsingMock ? Colors.orange : Colors.green)
-                          : Colors.red,
-                    ),
-                  ),
-                ],
+                    SizedBox(width: 8),
+                    Text('CONNECTING...', style: TextStyle(fontSize: 10)),
+                  ],
+                ),
+                error: (error, _) => const Row(
+                  children: [
+                    Icon(Icons.error, color: Colors.red, size: 16),
+                    SizedBox(width: 4),
+                    Text('ERROR', style: TextStyle(fontSize: 10, color: Colors.red)),
+                  ],
+                ),
               );
             },
           ),
@@ -259,6 +283,8 @@ class _DashboardContentState extends ConsumerState<DashboardContent> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
+              // Force refresh connection status
+              ref.invalidate(socketConnectionStatusProvider);
               setState(() {});
             },
           ),

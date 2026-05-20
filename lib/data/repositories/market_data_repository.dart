@@ -53,6 +53,9 @@ class MarketDataRepository {
 
   bool get isSocketConnected => _socketService.isConnected;
   bool get isUsingMockData => _socketService.isUsingMockData;
+
+  // Add stream for real-time connection status
+  Stream<bool> get connectionStatusStream => _socketService.connectionStatusStream;
 }
 
 final marketDataRepositoryProvider = Provider<MarketDataRepository>((ref) {
@@ -61,14 +64,14 @@ final marketDataRepositoryProvider = Provider<MarketDataRepository>((ref) {
   return MarketDataRepository(apiService, socketService);
 });
 
-// Simple provider for socket connection status
-final socketConnectionStatusProvider = Provider<bool>((ref) {
-  final socketService = ref.watch(socketServiceProvider);
-  return socketService.isConnected;
+// Simple provider for socket connection status (auto-updating)
+final socketConnectionStatusProvider = StreamProvider<bool>((ref) {
+  final repository = ref.watch(marketDataRepositoryProvider);
+  return repository.connectionStatusStream;
 });
 
-// Simple provider for mock data status
-final mockDataStatusProvider = Provider<bool>((ref) {
-  final socketService = ref.watch(socketServiceProvider);
-  return socketService.isUsingMockData;
+// Simple provider for mock data status (auto-updating)
+final mockDataStatusProvider = StreamProvider<bool>((ref) {
+  final repository = ref.watch(marketDataRepositoryProvider);
+  return repository.connectionStatusStream.map((connected) => !connected);
 });

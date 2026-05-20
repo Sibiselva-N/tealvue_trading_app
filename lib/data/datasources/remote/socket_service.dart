@@ -16,6 +16,9 @@ class SocketService {
   String? _lastError;
   final Map<String, double> _basePrices = {}; // Store real base prices
 
+  final _connectionStatusController = StreamController<bool>.broadcast();
+  Stream<bool> get connectionStatusStream => _connectionStatusController.stream;
+
   void connect() {
     if (_socket != null && _isConnected) return;
 
@@ -36,7 +39,7 @@ class SocketService {
         _isConnected = true;
         _lastError = null;
         _notifyConnectionStatus(true);
-
+        _connectionStatusController.add(true);
         if (_pendingSubscriptions.isNotEmpty) {
           print('Processing pending subscriptions: $_pendingSubscriptions');
           _socket!.emit(AppConstants.subscribeEvent, _pendingSubscriptions);
@@ -55,6 +58,7 @@ class SocketService {
         _isConnected = false;
         _lastError = error.toString();
         _notifyConnectionStatus(false);
+        _connectionStatusController.add(false);
         _startMockTicker();
       });
 
@@ -62,11 +66,13 @@ class SocketService {
         print('Socket disconnected');
         _isConnected = false;
         _notifyConnectionStatus(false);
+        _connectionStatusController.add(false);
         _startMockTicker();
       });
 
       _socket!.onReconnecting((attempt) {
         print('Socket reconnecting attempt: $attempt');
+        _connectionStatusController.add(false);
         _notifyConnectionStatus(false);
       });
 
@@ -74,6 +80,7 @@ class SocketService {
         print('Socket reconnected after $attempt attempts');
         _isConnected = true;
         _lastError = null;
+        _connectionStatusController.add(true);
         _notifyConnectionStatus(true);
 
         if (_currentSubscriptions.isNotEmpty) {
@@ -86,6 +93,7 @@ class SocketService {
       _socket!.onReconnectError((error) {
         print('Socket reconnection error: $error');
         _lastError = error.toString();
+        _connectionStatusController.add(false);
         _notifyConnectionStatus(false);
       });
 
@@ -109,18 +117,20 @@ class SocketService {
         if (!_isConnected) {
           print('Real socket not connected, starting mock ticker');
           _startMockTicker();
+          _connectionStatusController.add(false);
         }
       });
     } catch (e) {
       print('Socket creation error: $e');
       _lastError = e.toString();
+      _connectionStatusController.add(false);
       _startMockTicker();
     }
   }
 
   void _startMockTicker() {
     if (_mockTickerTimer != null) return;
-
+    _connectionStatusController.add(false);
     print('Starting mock ticker generator (fallback mode)');
     _mockTickerTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
       for (var symbol in _currentSubscriptions) {
@@ -133,6 +143,7 @@ class SocketService {
     if (_mockTickerTimer != null) {
       print('Stopping mock ticker generator');
       _mockTickerTimer?.cancel();
+      _connectionStatusController.add(true);
       _mockTickerTimer = null;
     }
   }
